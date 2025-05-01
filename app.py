@@ -1,5 +1,4 @@
 import os
-import re
 from dotenv import load_dotenv
 import google.generativeai as genai
 from flask import Flask, request
@@ -33,7 +32,7 @@ def log_message(user_id: int, text: str):
 app = Flask(__name__)
 
 # === Ініціалізація бота ===
-bot = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -64,17 +63,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Сталася помилка. Спробуй ще раз пізніше.")
 
 
-# Додаємо хендлери без використання Dispatcher
-bot.add_handler(CommandHandler("start", start))
-bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+# Додаємо хендлери через application
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
 
 # === Webhook route для Flask ===
 @app.route('/webhook', methods=['POST'])
 def webhook():
     json_str = request.get_data().decode("UTF-8")
-    update = Update.de_json(json_str, bot)
-    bot.process_update(update)
+    print(f"Received update: {json_str}")  # Логування запиту
+    update = Update.de_json(json_str, application.bot)
+    application.process_update(update)  # Обробка оновлення
     return "OK", 200
+
 
 # === Запуск вбудованого webhook-сервера ===
 if __name__ == "__main__":
@@ -82,8 +84,9 @@ if __name__ == "__main__":
     webhook_url = f"{SERVICE_URL}/webhook"
     
     # Реєструємо webhook для Telegram
-    bot.bot.set_webhook(webhook_url)
+    application.bot.set_webhook(webhook_url)
     print(f"Webhook зареєстровано: {webhook_url}")
     
     # Запускаємо Flask сервер
     app.run(host="0.0.0.0", port=port)
+
