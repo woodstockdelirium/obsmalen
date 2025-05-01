@@ -80,7 +80,7 @@ def webhook():
 
 # === Запуск вбудованого webhook-сервера ===
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     webhook_url = f"{SERVICE_URL}/webhook"
     
     # Реєструємо webhook для Telegram
