@@ -9,7 +9,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHan
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-SERVICE_URL = os.getenv("SERVICE_URL")  # https://<your-server>.run.app
+SERVICE_URL = os.getenv("SERVICE_URL")  # https://<your-server>.onrender.com
 
 if not all([GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, SERVICE_URL]):
     raise RuntimeError("У .env має бути GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, SERVICE_URL")
