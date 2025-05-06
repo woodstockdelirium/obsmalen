@@ -2,11 +2,10 @@ import os
 import logging
 from dotenv import load_dotenv
 import google.generativeai as genai
-from telegram import Update
-from telegram.ext import (ApplicationBuilder, MessageHandler, filters, 
-                          ContextTypes, CommandHandler, Application)
+from telegram import Update, Bot
+from telegram.ext import (Dispatcher, MessageHandler, filters, 
+                          CommandHandler, CallbackContext)
 from flask import Flask, request
-
 
 # === Налаштування логування ===
 logging.basicConfig(
@@ -15,22 +14,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # === Завантаження .env ===
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SERVICE_URL = os.getenv("SERVICE_URL")  # https://<your-service>.run.app
 
-
 if not all([GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, SERVICE_URL]):
     raise RuntimeError("У .env має бути GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, SERVICE_URL")
-
 
 # === Налаштування Gemini ===
 genai.configure(api_key=GEMINI_API_KEY)
 chat_sessions = {}
-
 
 # === Системний промпт ===
 SYSTEM_PROMPT = """
@@ -108,12 +103,15 @@ ObsmalenoBot — це твій кавовий консультант, який:
 Мінімум формальності, максимум сенсу
 """
 
+# === Створення Flask app та налаштування Telegram ===
+flask_app = Flask(__name__)
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
+dispatcher = Dispatcher(bot=bot)
 
 def log_message(user_id: int, text: str):
     logger.info(f"[{user_id}] {text}")
 
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update, context):
     user_id = update.effective_user.id
     log_message(user_id, "/start")
 
@@ -124,66 +122,58 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # перше привітання
     response = chat_sessions[user_id].send_message("Привіт!")
-    await update.message.reply_text(response.text)
+    update.message.reply_text(response.text)
 
-
-# === Обробка повідомлень ===
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle(update, context):
     user_id = update.effective_user.id
     text = update.message.text
     log_message(user_id, text)
 
     if user_id not in chat_sessions:
-        await start(update, context)
+        start(update, context)
         return
     try:
         response = chat_sessions[user_id].send_message(text)
-        await update.message.reply_text(response.text)
+        update.message.reply_text(response.text)
     except Exception as e:
         logger.error(f"Помилка Gemini: {str(e)}")
-        await update.message.reply_text("Сталася помилка. Спробуй ще раз пізніше.")
+        update.message.reply_text("Сталася помилка. Спробуй ще раз пізніше.")
 
-
-# === Створення Flask app та Telegram app ===
-flask_app = Flask(__name__)
-telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-
-# === Налаштування обробників для Telegram ===
-def init_telegram_handlers():
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
+# Реєстрація обробників
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 # === Flask endpoint для webhook ===
 @flask_app.route("/webhook", methods=["POST"])
-async def webhook():
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    await telegram_app.process_update(update)
+def webhook():
+    try:
+        update = Update.de_json(request.get_json(force=True), bot)
+        dispatcher.process_update(update)
+    except Exception as e:
+        logger.error(f"Помилка обробки webhook: {str(e)}")
     return "OK"
-
 
 # === Здоров'я сервісу для Cloud Run ===
 @flask_app.route("/health", methods=["GET"])
 def health():
     return "OK"
 
-
 @flask_app.route("/", methods=["GET"])
 def index():
     return "Telegram bot працює!"
 
+# === Налаштування webhook ===
+@flask_app.route("/setup", methods=["GET"])
+def setup():
+    try:
+        webhook_url = f"{SERVICE_URL}/webhook"
+        bot.set_webhook(webhook_url)
+        return f"Webhook встановлено на {webhook_url}"
+    except Exception as e:
+        return f"Помилка налаштування webhook: {str(e)}"
 
-# === Запуск ===
+# === Запуск Flask сервера ===
 if __name__ == "__main__":
-    # Ініціалізуємо обробники повідомлень
-    init_telegram_handlers()
-    
-    # Встановлюємо webhook
-    webhook_url = f"{SERVICE_URL}/webhook"
-    telegram_app.bot.set_webhook(webhook_url)
-    logger.info(f"Webhook зареєстровано: {webhook_url}")
-    
     # Запускаємо Flask сервер
     port = int(os.environ.get("PORT", 8080))
     flask_app.run(host="0.0.0.0", port=port)
