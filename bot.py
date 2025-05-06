@@ -173,7 +173,16 @@ def setup():
         return f"Помилка налаштування webhook: {str(e)}"
 
 # === Запуск Flask сервера ===
+# Змініть блок запуску Flask додатку на наступне:
+
+# === Запуск Flask сервера ===
 if __name__ == "__main__":
-    # Запускаємо Flask сервер
+    # Отримуємо порт з середовища (Cloud Run надає PORT)
     port = int(os.environ.get("PORT", 8080))
-    flask_app.run(host="0.0.0.0", port=port)
+    
+    # Важливо: слухайте на 0.0.0.0, а не на localhost
+    # Це дозволить Cloud Run спрямовувати запити до вашого додатку
+    flask_app.run(host="0.0.0.0", port=port, debug=False)
+    
+    # Опціонально, логуйте запуск для відлагодження
+    logger.info(f"Сервер запущено на порту {port}")
