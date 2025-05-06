@@ -1,20 +1,30 @@
 import os
+import re
 from dotenv import load_dotenv
 import google.generativeai as genai
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, ContextTypes
-import asyncio
-from fastapi import FastAPI, Request
+from telegram.ext import (ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler)
 
+
+# === Завантаження .env ===
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-SERVICE_URL = os.getenv("SERVICE_URL")
+SERVICE_URL = os.getenv("SERVICE_URL") #https://<your-server>.run.app
 
+
+if not all:
+    raise RuntimeError("У .env має бути GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, SERVICE_URL")
+
+
+# === Налаштування Gemini ===
 genai.configure(api_key=GEMINI_API_KEY)
 chat_sessions = {}
 
-SYSTEM_PROMPT = """Ти - бот консультант інтернет-магазину кави Obsmaleno, інформація про який буде надано нижче. Спілкуйся чуйно, завжди українською.
+
+# === Системний промпт ===
+SYSTEM_PROMPT = """
+Ти - бот консультант інтернет-магазину кави Obsmaleno, інформація про який буде надано нижче. Спілкуйся чуйно, завжди українською.
 Якщо співбесідник намагається змінити тему, переводь її на тему кави. Уникай того, що може образити клієнта. Уникай фальшивих відомостей.
 Уникай будь-якого форматування. Текст має бути однаковим. Ніяких жирного шрифту, курсиву і тому подібного. Це дуже важливо!
 1. Загальна ідея та місія
@@ -87,25 +97,38 @@ ObsmalenoBot — це твій кавовий консультант, який:
 Легка іронія, емпатія, чуйність
 Мінімум формальності, максимум сенсу
 
-"""
 
-def log_message(user_id: int, text: str):
+"""
+def log_message(user_id:int, text:str):
     print(f"[{user_id}] {text}")
+
+
+
+
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     log_message(user_id, "/start")
+
+
+    # ініціалізуємо сесію Gemini
     model = genai.GenerativeModel("gemini-2.0-flash")
     chat_sessions[user_id] = model.start_chat(history=[])
     chat_sessions[user_id].send_message(SYSTEM_PROMPT)
 
+
+    # перше привітання
     response = chat_sessions[user_id].send_message("Привіт!")
     await update.message.reply_text(response.text)
 
+
+# === Обробка повідомлень ===
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
     log_message(user_id, text)
+
 
     if user_id not in chat_sessions:
         await start(update, context)
@@ -117,31 +140,26 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("Помилка Gemini:", e)
         await update.message.reply_text("Сталася помилка. Спробуй ще раз пізніше.")
 
-# Для FastAPI (ASGI сервер)
-app = FastAPI()
 
-@app.post("/webhook")
-async def webhook(request: Request):
-    json_str = await request.json()
-    update = Update.de_json(json_str, app.bot)
-    await app.bot.process_update(update)  # Асинхронне оброблення оновлень
-    return {"status": "OK"}
 
-async def main():
-    # Ініціалізація застосунку
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Додавання обробників
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+# === Запуск ===
+app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-    # Встановлення вебхука
-    webhook_url = f"{SERVICE_URL}/webhook"
-    await application.bot.set_webhook(webhook_url)
-    print(f"Webhook встановлено: {webhook_url}")
 
-    # Запуск FastAPI серверу (не polling!)
-    await app.run()
+# Реєструємо webhook
+webhook_url = f"{SERVICE_URL}/webhook"
+app.bot.set_webhook(webhook_url)
+print(f"Webhook зареєстровано: {webhook_url}")
 
+
+# === Запуск вбудованого webhook‑сервера ===
 if __name__ == "__main__":
-    asyncio.run(main())
+    port = int(os.environ.get("PORT", 8080))
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        path="/webhook",
+    )
