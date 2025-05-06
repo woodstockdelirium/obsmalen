@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, ContextTypes
+import asyncio
+from fastapi import FastAPI, Request
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -84,6 +86,7 @@ ObsmalenoBot — це твій кавовий консультант, який:
 "На ти", дружній, живий стиль
 Легка іронія, емпатія, чуйність
 Мінімум формальності, максимум сенсу
+
 """
 
 def log_message(user_id: int, text: str):
@@ -114,6 +117,16 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("Помилка Gemini:", e)
         await update.message.reply_text("Сталася помилка. Спробуй ще раз пізніше.")
 
+# Для FastAPI (ASGI сервер)
+app = FastAPI()
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    json_str = await request.json()
+    update = Update.de_json(json_str, app.bot)
+    app.bot.process_update(update)
+    return {"status": "OK"}
+
 async def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -124,6 +137,7 @@ async def main():
     await app.bot.set_webhook(webhook_url)
     print(f"Webhook встановлено: {webhook_url}")
 
+    # Запуск через ASGI сервер (Uvicorn)
     await app.run_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get("PORT", 10000)),
@@ -131,5 +145,4 @@ async def main():
     )
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
