@@ -5,7 +5,6 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, ContextTypes
 import asyncio
 from fastapi import FastAPI, Request
-from telegram.ext import Application
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -87,6 +86,7 @@ ObsmalenoBot — це твій кавовий консультант, який:
 "На ти", дружній, живий стиль
 Легка іронія, емпатія, чуйність
 Мінімум формальності, максимум сенсу
+
 """
 
 def log_message(user_id: int, text: str):
@@ -117,34 +117,31 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("Помилка Gemini:", e)
         await update.message.reply_text("Сталася помилка. Спробуй ще раз пізніше.")
 
-# Ініціалізація FastAPI
+# Для FastAPI (ASGI сервер)
 app = FastAPI()
-
-# Ініціалізація об'єкта Telegram бота через Application
-application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
 @app.post("/webhook")
 async def webhook(request: Request):
     json_str = await request.json()
-    update = Update.de_json(json_str, application.bot)
-    application.bot.process_update(update)
+    update = Update.de_json(json_str, app.bot)
+    await app.bot.process_update(update)  # Асинхронне оброблення оновлень
     return {"status": "OK"}
 
-# Функція для налаштування вебхука та запуску бота
 async def main():
+    # Ініціалізація застосунку
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # Додавання обробників
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
+    # Встановлення вебхука
     webhook_url = f"{SERVICE_URL}/webhook"
     await application.bot.set_webhook(webhook_url)
     print(f"Webhook встановлено: {webhook_url}")
 
-    # Запуск через ASGI сервер (Uvicorn)
-    await application.run_webhook(
-        listen="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000)),
-        webhook_path="/webhook",
-    )
+    # Запуск FastAPI серверу (не polling!)
+    await app.run()
 
 if __name__ == "__main__":
     asyncio.run(main())
